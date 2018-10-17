@@ -105,6 +105,7 @@ CPI <- toTs( data$CPI, from=fromInSample, to=toOutOfSample,frequency = FREQ)
 GSPC <- toTs( data$X.GSPC, from=fromInSample, to=toOutOfSample,frequency = FREQ)
 GS2 <- toTs( data$GS2, from=fromInSample, to=toOutOfSample,frequency = FREQ)
 GS10 <- toTs( data$GS10, from=fromInSample, to=toOutOfSample,frequency = FREQ)
+V_INTEREST <- toTs( V_INTEREST, from=fromInSample, to=toOutOfSample,frequency = FREQ)
 #ANALYSIS CONFIGURATION
 
 #END ANALYSIS CONFIGURATION
@@ -563,5 +564,3 @@ doNicePlot(cbind(V_INTEREST,fARMARecursive,FVECRecursive,FRW),main=main,labels=c
 
 doNicePlot(cbind(V_INTEREST,fARMAStatic,FVECRecursive,FRW),main=main,labels=c('time',V_INTEREST_TYPE),ylim=YLIM,
            legendPos = LEGENDPOS, legendCols = c('Actual','Forecast - ARMA Static','Forecast - VEC Recursive','Forecast - RW'),verticalLine = fromOutOfSample)
-
-arch.test(autoArimaVInterest)
