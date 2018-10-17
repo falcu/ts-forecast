@@ -10,6 +10,8 @@
 #install.packages("vars")
 #install.packages("CADFtest")
 #install.packages("tsDyn")
+#install.packages("Metrics")
+#install.packages("MLmetrics")
 
 
 library(forecast)
@@ -24,12 +26,19 @@ library(lmtest)
 library(vars)
 library(CADFtest)
 library(tsDyn)
+library(Metrics)
+library(MLmetrics)
 
-#GLOBAL CONSTANTS
-#GLOBAL CONSTANTS. Data File
+#Configurable Variables
 DATA_FILE <- "D:/Guido/Master Finanzas/2018/Segundo Trimestre/SeriesDeTiempo/TP Final/Data/Data.xlsx"
 data <- read.xlsx(DATA_FILE,1)
+V_INTEREST <- data$GS2
+V_INTEREST_NAME <- 'GS2'
+V_INTEREST_TYPE <- 'IR'  #Use for plot on y axis
+YLIM <- c(0,7)
+LEGENDPOS <- c(2003,7.5)
 
+#Primitive functions
 toTs <- function(rawData,from,to,frequency){
   theTs <- ts( rawData, start=from, end=to,frequency = frequency)
   return(theTs)
@@ -96,7 +105,9 @@ CPI <- toTs( data$CPI, from=fromInSample, to=toOutOfSample,frequency = FREQ)
 GSPC <- toTs( data$X.GSPC, from=fromInSample, to=toOutOfSample,frequency = FREQ)
 GS2 <- toTs( data$GS2, from=fromInSample, to=toOutOfSample,frequency = FREQ)
 GS10 <- toTs( data$GS10, from=fromInSample, to=toOutOfSample,frequency = FREQ)
+#ANALYSIS CONFIGURATION
 
+#END ANALYSIS CONFIGURATION
 Y <- cbind(FED,UNEMPLOY,CPI,GSPC,GS2,GS10)
 plot(Y)
 
@@ -106,6 +117,7 @@ CPI_IN <- window(CPI, start=fromInSample, end=toInSample)
 GSPC_IN <- window(GSPC, start=fromInSample, end=toInSample)
 GS2_IN <- window(GS2, start=fromInSample, end=toInSample)
 GS10_IN <- window(GS10, start=fromInSample, end=toInSample)
+V_INTEREST_IN <- window(V_INTEREST, start=fromInSample, end=toInSample)
 
 Y_IN <- cbind(FED_IN,UNEMPLOY_IN,CPI_IN,GSPC_IN,GS2_IN,GS10_IN)
 plot(Y_IN)
@@ -116,6 +128,7 @@ CPI_OUT <- window(CPI, start=fromOutOfSample, end=toOutOfSample)
 GSPC_OUT <- window(GSPC, start=fromOutOfSample, end=toOutOfSample)
 GS2_OUT <- window(GS2, start=fromOutOfSample, end=toOutOfSample)
 GS10_OUT <- window(GS10, start=fromOutOfSample, end=toOutOfSample)
+V_INTEREST_OUT <- window(V_INTEREST, start=fromOutOfSample, end=toOutOfSample)
 
 Y_OUT <- cbind(UNEMPLOY_OUT,CPI_OUT,GSPC_OUT,FED_OUT,GS2_OUT,GS10_OUT)
 plot(Y_OUT)
@@ -128,9 +141,7 @@ D2008Crisis_IN <- createTSDummy(DATES, fromInSample, toInSample, crisisSubprimeF
 D2008Crisis_OUT <- createBoolTSDummy(fromOutOfSample, toOutOfSample, frequency = FREQ, booleanValue = FALSE )
 D2008CrisisForDiff_IN <- createTSDummy(DATES, fromInSamplePlus1, toInSample, crisisSubprimeFrom, crisisSubprimeTo, FREQ)
 
-#Functions
-
-
+#Helper Functions
 findARMA <- function( theTS, ar=5, ma=5, boxTestLimit=0.22, boxTestLag=12, xreg=NULL ){
   
   armaModel <- NULL
@@ -138,27 +149,34 @@ findARMA <- function( theTS, ar=5, ma=5, boxTestLimit=0.22, boxTestLag=12, xreg=
   for(arComponent in ar:0){
     for(maComponent in ma:0){
       armaModel <- arima(theTS,order=c(arComponent,0,maComponent),xreg=xreg)
-      modelApplies <- TRUE
-      print(armaModel$arma)
+      passedBoxTest <- TRUE
       for(lag in 1:boxTestLag){
         bTest <- Box.test(armaModel$residuals,lag)
-        print(bTest$p.value)
         if(bTest$p.value <= boxTestLimit){
-          modelApplies <- FALSE
+          passedBoxTest <- FALSE
           break()
         }
       }
-      if(modelApplies){
+      aicValue <- AIC(armaModel)
+      print(paste('AIC',AIC(armaModel),sep=':'))
+      print(paste(c('P', 'Q', 'D'),c(arimaorder(armaModel)),sep=':'))
+      if(passedBoxTest){
+        print("Model has passed Box Test")
         #Arbitrary criteria for smaller model
-        if( (armaModel$arma[1]+armaModel$arma[2])< (lastArmaFound$arma[1]+lastArmaFound$arma[2]) )
-        lastArmaFound <- armaModel
-        print("Found:")
-        print(lastArmaFound$arma)
+        if( aicValue< AIC(lastArmaFound) )
+        {
+          print("Model has lowest AIC so far")
+          lastArmaFound <- armaModel
+        }
       }
+      else{
+        print("Model has NOT passed Box Test")
+      }
+      print("-------------------------------------------------")
     }
   }
-  print("Result:")
-  print(lastArmaFound$arma)
+  print('Selected')
+  print(paste(c('P', 'Q', 'D'),c(arimaorder(lastArmaFound)),sep=':'))
   return(lastArmaFound)
 }
 
@@ -167,7 +185,7 @@ DFTest <- function( matrix ){
   print("Dickey-Fullter test P-value output:")
   options(warn=-1)
   for(col in columnNames){
-    testResult <- adf.test(matrix[,col])
+    testResult <- adf.test(na.omit(matrix[,col]))
     print(paste(c(col,"P value: ",testResult$p.value),collapse=" "))
   }
   options(warn=0)
@@ -204,7 +222,11 @@ doARMAForecastStatic <- function(order,inSampleTS,outOfSampleTS,fromInSample, to
   colnames(ic)[1] <- 'Lower 95%'
   colnames(ic)[2] <- 'Upper 95%'
   
-  doForecastPlot(obsAndForecasted,ic,labels=labels,ylim=ylim,legendPos=legendPos,main='ARMA(Static)')
+  main='ARMA(Static)'
+  doShowMetric(outOfSampleTS,forecastedTS,title=main)
+  doForecastPlot(obsAndForecasted,ic,labels=labels,ylim=ylim,legendPos=legendPos,main=main)
+  
+  return(forecastedTS)
 }
 
 
@@ -244,7 +266,12 @@ doARMAForecastRecursive <- function(order,inSampleTS,outOfSampleTS,fromInSample,
   colnames(ic)[1] <- 'Lower 95%'
   colnames(ic)[2] <- 'Upper 95%'
   
-  doForecastPlot(obsAndForecasted,ic,labels=labels,ylim=ylim,legendPos=legendPos,main='ARMA(Recursive)')
+  main='ARMA(Recursive)'
+  doShowMetric(outOfSampleTS,forecastedTS,title=main)
+  doForecastPlot(obsAndForecasted,ic,labels=labels,ylim=ylim,legendPos=legendPos,main=main)
+  
+  return(forecastedTS)
+  
 }
 
 doVECForecastRecursive<- function(inSampleTS,outOfSampleTS, K, vName, fromOutOfSample, toOutOfSample, tsName=NULL, frequency=12, dummyIn=NULL,legendPos=c(0,0),
@@ -278,7 +305,8 @@ doVECForecastRecursive<- function(inSampleTS,outOfSampleTS, K, vName, fromOutOfS
     upper95 <- c(upper95,newUpper95)
     dummyIn <- cbind(dummy=c(dummyIn,0))
   }
-  observedTS <- toTs( c(inSampleTS[tsName][,1],outOfSampleTS[tsName][,1]) , from=fromInSample, to=toOutOfSample,frequency = frequency)
+  currentOutOfSampleTS <- outOfSampleTS[tsName][,1]
+  observedTS <- toTs( c(inSampleTS[tsName][,1],currentOutOfSampleTS) , from=fromInSample, to=toOutOfSample,frequency = frequency)
   forecastedTS <- toTs( forecastedValues , from=fromOutOfSample, to=toOutOfSample,frequency = frequency)
   lower95TS <- toTs( lower95 , from=fromOutOfSample, to=toOutOfSample,frequency = frequency)
   upper95TS <- toTs( upper95 , from=fromOutOfSample, to=toOutOfSample,frequency = frequency)
@@ -288,7 +316,12 @@ doVECForecastRecursive<- function(inSampleTS,outOfSampleTS, K, vName, fromOutOfS
   ic <- cbind(lower95TS,upper95TS)
   colnames(ic)[1] <- 'Lower 95%'
   colnames(ic)[2] <- 'Upper 95%'
-  doForecastPlot(obsAndForecasted,ic,labels=labels,ylim=ylim,legendPos=legendPos, main='VEC(Recursive)')
+  
+  main='VEC(Recursive)'
+  doForecastPlot(obsAndForecasted,ic,labels=labels,ylim=ylim,legendPos=legendPos, main=main)
+  doShowMetric(currentOutOfSampleTS,forecastedValues, title=main)
+  
+  return(forecastedTS)
 }
 
 doRandomWalkForecast<- function(inSampleTS,outOfSampleTS,fromInSample, toInSample, fromOutOfSample, toOutOfSample, xregIn=NULL, xregOut=NULL, frequency=12, tsName='', labels=c('',''), legendPos=c(0,0)
@@ -298,7 +331,9 @@ doRandomWalkForecast<- function(inSampleTS,outOfSampleTS,fromInSample, toInSampl
   outWindow <- length(outOfSampleTS)
   forecastedValues <- c(inSampleTS[inWindow])
   for (i in 1:(outWindow-1)){
-    forecastedValues <- c(forecastedValues,outOfSampleTS[i])
+    rwSD <- sd(c(inSampleTS[1:(inWindow-1)],forecastedValues))
+    newValue <- outOfSampleTS[i]
+    forecastedValues <- c(forecastedValues,newValue)
   }
   
   observedTS <- toTs( c(inSampleTS,outOfSampleTS) , from=fromInSample, to=toOutOfSample,frequency = frequency)
@@ -306,7 +341,13 @@ doRandomWalkForecast<- function(inSampleTS,outOfSampleTS,fromInSample, toInSampl
   obsAndForecasted <- cbind(observedTS,forecastedTS)
   colnames(obsAndForecasted)[1] <- paste( 'Actual', tsName )
   colnames(obsAndForecasted)[2] <- paste( 'Forecasted', tsName )
-  doForecastPlot(obsAndForecasted,labels=labels,ylim=ylim,legendPos=legendPos, main='Random Walk')
+  
+  main='Random Walk'
+  doForecastPlot(obsAndForecasted, labels=labels,ylim=ylim,legendPos=legendPos, main=main)
+  
+  doShowMetric(outOfSampleTS,forecastedTS, title=main)
+  
+  return(forecastedTS)
 }
 
 doForecastPlot <- function(obsAndForecasted, ic=NULL, labels, ylim=c(0,100), legendPos=c(0,0), main=''){
@@ -330,6 +371,38 @@ doForecastPlot <- function(obsAndForecasted, ic=NULL, labels, ylim=c(0,100), leg
          col=col, lty=1,bty = "n")
 }
 
+doNicePlot <- function(variables,labels=c('',''),ylim=c(0,100), legendPos=c(0,0), main='', colors=NULL, legendCols=NULL, verticalLine=NULL){
+  defaultColors = c('black','green','red','blue','yellow')
+  if(is.null(colors)){
+    colors = defaultColors
+  }
+  if(is.null(legendCols)){
+    legendCols = colnames(variables)
+  }
+  par(mar= c(5, 4, 4, 2) + 0.1, mfrow=c(1,1))
+  plot(variables[,1],type = "l",lwd=1, col=colors[1], xlab=labels[1],ylab=labels[2], ylim=ylim, main=main)
+  for(i in 2:ncol(variables)){
+    lines(variables[,i], lwd=2, col=colors[i])
+  }
+  legend(legendPos[1], legendPos[2], legend=legendCols,
+         col=colors, lwd=1,bty = "n")
+  
+  if(!is.null(verticalLine)){
+    abline(v=verticalLine)
+  }
+}
+
+
+doShowMetric <- function(actual,predicted,title=''){
+  mapeResult <- paste("MAPE",round(MAPE(predicted,actual)*100,2), sep=": ")
+  rmseResult <- paste("RMSE",round(rmse(actual,predicted)*100,2), sep=": ")
+  print(title)
+  print(mapeResult)
+  print(rmseResult)
+  print('--------------------------------------------')
+}
+
+#ANALYSIS
 
 #Stationarity
 DFTest(Y)
@@ -341,14 +414,17 @@ summary(ur.df(GS2,type="trend",selectlags="BIC"))
 summary(ur.df(GS10,type="trend",selectlags="BIC"))
 
 #Diff
-diffUNEMPLOY <- diff(UNEMPLOY)
-diffCPI <- diff(CPI)
-diffGSPC <- diff(GSPC)
-diffFED <- diff(FED)
-diffGS2 <- diff(GS2)
-diffGS10 <- diff(GS10)
+DIFF_UNEMPLOY <- diff(UNEMPLOY)
+DIFF_CPI <- diff(CPI)
+DIFF_GSPC <- diff(GSPC)
+DIFF_FED <- diff(FED)
+DIFF_GS2 <- diff(GS2)
+DIFF_GS10 <- diff(GS10)
+DIFF_V_INTEREST <- diff(V_INTEREST)
 
-Y_DIFF <- cbind(diffUNEMPLOY,diffCPI,diffGSPC,diffFED,diffGS2,diffGS10)
+DIFF_V_INTEREST_IN <- diff(V_INTEREST_IN)
+
+Y_DIFF <- cbind(DIFF_UNEMPLOY,DIFF_CPI,DIFF_GSPC,DIFF_FED,DIFF_GS2,DIFF_GS10)
 plot(Y_DIFF)
 #Stationarity
 DFTest(Y_DIFF)
@@ -363,37 +439,33 @@ summary(ur.df(diffGS10,type="trend",selectlags="AIC"))
 summary(ca.jo(Y, type="trace", ecdet="trend", K=3, dumvar=cbind(dummy=c(D2008Crisis))))
 
 
-#Analizo FED
-plot(FED, main = 'FED rate')
-summary(ur.df(FED,type="trend",selectlags="BIC"))
-diffFED <- diff(FED)
-plot(diffFED, main = 'FED rate(1st Diff)')
-summary(ur.df(diffFED,type="trend",selectlags="BIC"))
-acf(diffFED)
-pacf(diffFED)
-diffFED_IN <- diff(FED_IN)
-armaModelFED <- findARMA(diffFED_IN,xreg=diffFED_IN*D2008CrisisForDiff_IN)
-plot(armaModelFED$residuals, main='ARMA Residulas')
+#Analyze Variable of interest
+print(paste('Variable of Interest',V_INTEREST_NAME))
+plot(V_INTEREST, main = V_INTEREST_NAME)
+summary(ur.df(V_INTEREST,type="trend",selectlags="BIC"))
+plot(DIFF_V_INTEREST, main = paste('Diff',V_INTEREST_NAME))
+summary(ur.df(DIFF_V_INTEREST,type="trend",selectlags="BIC"))
+acf(DIFF_V_INTEREST, lag.max=100)
+pacf(DIFF_V_INTEREST,lag.max=100)
+
+armaModelVInterest <- findARMA(DIFF_V_INTEREST_IN,xreg=DIFF_V_INTEREST_IN*D2008CrisisForDiff_IN)
+plot(armaModelVInterest$residuals, main='ARMA Residuals')
 Box.test(armaModelFED$residuals)
-autoArimaFED <- auto.arima(FED_IN, seasonal = FALSE, xreg=data.frame(FED_IN*D2008Crisis_IN))
-armaModelFED <- arima(diffFED_IN,c(1,1,2),xreg=FED_IN*D2008CrisisForDiff_IN)
-#autoArimaFED <- auto.arima(FED, seasonal = FALSE)
-autoArimaFED
-plot(autoArimaFED$residuals, main='AUTO ARMA FOR FED')
-Box.test(autoArimaFED$residuals)
+autoArimaVInterest <- auto.arima(V_INTEREST_IN, seasonal = FALSE, xreg=data.frame(V_INTEREST_IN*D2008Crisis_IN))
+ARMA_ORDER <- arimaorder(autoArimaVInterest)
+print(paste(c("P", "D", "Q"),ARMA_ORDER))
+autoArimaVInterest
+plot(autoArimaVInterest$residuals, main=paste('Auto model for',V_INTEREST_NAME))
+Box.test(autoArimaVInterest$residuals)
 
-test <- forecast(FED_OUT, model=autoArimaFED, xreg=D2008Crisis_OUT)
-fitted(test)
-
-ARMA_ORDER <- c(1,1,2)
 
 #Co-integracion
 summary(ca.jo(Y, type="trace", ecdet="trend", K=2, dumvar=cbind(dummy=c(D2008Crisis))))
 summary(ca.jo(Y, type="trace", ecdet="trend", K=2))
 
-#modelo MCE FED
+#Manual ECM model with 2 lags
 
-diffFED <- lag(window( diff(FED_IN), start=fromInSamplePlus3),3)
+diffVInterest <- lag(window( diff(V_INTEREST_IN), start=fromInSamplePlus3),3)
 #First lag
 UNEMPLOY_1<- lag(window( UNEMPLOY_IN, start=fromInSamplePlus2 ,end=toInSampleMinus1),2)
 CPI_1 <- lag(window( CPI_IN, start=fromInSamplePlus2 ,end=toInSampleMinus1),2)
@@ -426,10 +498,10 @@ diffGS10_2 <- lag(window( diff(GS10_IN), start=fromInSamplePlus1, end=toInSample
 #Dummy
 D2008CrisisAdapted <- lag(window( D2008Crisis_IN, start=fromInSamplePlus3),3)
 
-ecmModelFED <- lm( diffFED~ 
+ecmModelVInterest <- lm( diffVInterest~ 
                   UNEMPLOY_1+CPI_1+GSPC_1+FED_1+GS2_1+GS10_1
                 + UNEMPLOY_2+CPI_2+GSPC_2+FED_2+GS2_2+GS10_2
-                #+ diffUNEMPLOY_1+diffCPI_1+diffGSPC_1+diffFED_1+diffGS2_1+diffGS10_1
+                + diffUNEMPLOY_1+diffCPI_1+diffGSPC_1+diffFED_1+diffGS2_1+diffGS10_1
                 + diffUNEMPLOY_2+diffCPI_2+diffGSPC_2+diffFED_2+diffGS2_2+diffGS10_2
                 + D2008CrisisAdapted 
                 + D2008CrisisAdapted*UNEMPLOY_1 + D2008CrisisAdapted*CPI_1 + D2008CrisisAdapted*GSPC_1 + D2008CrisisAdapted*FED_1 + D2008CrisisAdapted*GS2_1+ D2008CrisisAdapted*GS10_1
@@ -439,7 +511,7 @@ ecmModelFED <- lm( diffFED~
 summary(ecmModelFED)
 bgtest(ecmModelFED,1)
 
-ecmModelFEDReduced <- lm( diffFED~ 
+ecmModelVInterestReduced <- lm( diffVInterest~ 
                         UNEMPLOY_1+CPI_1+FED_1+GS2_1
                       + GSPC_2+FED_2+GS2_2
                       + diffGS2_2
@@ -447,64 +519,49 @@ ecmModelFEDReduced <- lm( diffFED~
                       + D2008CrisisAdapted*UNEMPLOY_1 + D2008CrisisAdapted*GSPC_1 + D2008CrisisAdapted*FED_1 + D2008CrisisAdapted*GS2_1 + D2008CrisisAdapted*GS10_1
                       + D2008CrisisAdapted*UNEMPLOY_2 + D2008CrisisAdapted*CPI_2  + D2008CrisisAdapted*GSPC_2 + D2008CrisisAdapted*GS2_2 + D2008CrisisAdapted*GS10_2
                       )
-summary(ecmModelFEDReduced)
-bgtest(ecmModelFEDReduced,3)
+summary(ecmModelVInterestReduced)
+bgtest(ecmModelVInterestReduced,3)
 
 #ECM
 xeq <- xtr <- data.frame(cbind(FED_IN,UNEMPLOY_IN,CPI_IN,GSPC_IN,GS2_IN,GS10_IN,D2008Crisis_IN*UNEMPLOY_IN,D2008Crisis_IN*FED_IN, D2008Crisis_IN*CPI_IN,D2008Crisis_IN*GSPC_IN,D2008Crisis_IN*GS2_IN, D2008Crisis_IN*GS10_IN))
-ecmModelFED <- ecm(FED_IN, xeq, xtr, includeIntercept=TRUE)
-summary(ecmModelFED)
-bgtest(ecmModelFED,1)
-
-#VECM
-vec_ur <- ca.jo(inSampleVariales, K=4, ecdet = "trend", dumvar=cbind(dummy=c(D2008Crisis_IN)))
-var_ur <- vec2var(vec_ur)
-summary(var_ur)
-serial.test(var_ur)
+ecmModelVInterest <- ecm(V_INTEREST_IN, xeq, xtr, includeIntercept=TRUE)
+summary(ecmModelVInterest)
+bgtest(ecmModelVInterest,1)
 
 inSampleVariales <- data.frame(cbind(FED=FED_IN,UNEMPLOY=UNEMPLOY_IN,CPI=CPI_IN,GSPC=GSPC_IN,GS2=GS2_IN,GS10=GS10_IN))
 outOfSampelVariables <- data.frame(cbind(FED=FED_OUT,UNEMPLOY=UNEMPLOY_OUT,CPI=CPI_OUT,GSPC=GSPC_OUT,GS2=GS2_OUT,GS10=GS10_OUT))
 
-
-#FORECAST
-
-doARMAForecastStatic(ARMA_ORDER,FED_IN, FED_OUT, 
-                     fromInSample, toInSample, fromOutOfSample, toOutOfSample, tsName = 'FED', legendPos = c(2007,7),
-                     ylim=c(0,7), labels=c('time','IR'))
-
-
-doARMAForecastRecursive(ARMA_ORDER,FED_IN, FED_OUT, 
-                        fromInSample, toInSample, fromOutOfSample, toOutOfSample, tsName = 'FED', xregIn  = D2008Crisis_IN, xregOut= D2008Crisis_OUT, legendPos = c(2007,7),
-                        ylim=c(0,7), labels=c('time','IR'))
-
-doVECForecastRecursive(inSampleVariales,outOfSampelVariables,4,'FED',fromOutOfSample,toOutOfSample, tsName='FED', frequency = FREQ,
-                       dummyIn=cbind(dummy=c(D2008Crisis_IN)),legendPos = c(2007,7), ylim=c(0,7), labels=c('time','IR'))
-
-doRandomWalkForecast(FED_IN, FED_OUT, 
-                     fromInSample, toInSample, fromOutOfSample, toOutOfSample, tsName = 'FED', legendPos = c(2007,7),
-                     ylim=c(0,7), labels=c('time','IR'))
+#VECM
+K=4
+vec_ur <- ca.jo(inSampleVariales, K=K, ecdet = "trend", dumvar=cbind(dummy=c(D2008Crisis_IN)))
+var_ur <- vec2var(vec_ur)
+summary(var_ur)
+serial.test(var_ur)
 
 
-#FIN modelo MCE FED
+#FORECAST, with MAPE and RMSE
 
-y = cbind(UNEMPLOY,CPI,GSPC,FED,GS2,GS10)
-VARselect(y, lag.max=5, type="none")
-
-
-diffGS2 <- diff(GS2)
-y <- cbind(lag(diffUNEMPLOY),lag(diffCPI),lag(diffGSPC),lag(diffFED),lag(diffGS2),lag(diffGS10))
-y <- cbind(diffUNEMPLOY,diffCPI,diffGSPC,diffGS2,diffGS10)
-y <- cbind(diffUNEMPLOY,diffCPI,diffGSPC,diffGS10)
-y <- cbind(diffUNEMPLOY,diffCPI,diffGSPC,diffGS2,diffGS10)
-plot(diffFED)
-d2008CrisisVar <- window( d2008Crisis, end =preLastDate)
-VARselect(y, lag.max=10, type="none", exogen=cbind(dummy=c(d2008CrisisVar)))
+fARMAStatic <- doARMAForecastStatic(ARMA_ORDER,V_INTEREST_IN, V_INTEREST_OUT, 
+                     fromInSample, toInSample, fromOutOfSample, toOutOfSample, tsName = V_INTEREST_NAME, legendPos = LEGENDPOS,
+                     ylim=YLIM, labels=c('time',V_INTEREST_TYPE))
 
 
-varModel <- VAR(y,p=3, exogen=cbind(dummy=c(d2008Crisis)))
-summary(varModel)
-serial.test(varModel, lags.pt=10, type="PT.asymptotic") # Malo que p value sea bajo
-normality.test(varModel, multivariate.only=TRUE)
+fARMARecursive <- doARMAForecastRecursive(ARMA_ORDER,V_INTEREST_IN, V_INTEREST_OUT, 
+                        fromInSample, toInSample, fromOutOfSample, toOutOfSample, tsName = V_INTEREST_NAME, xregIn  = D2008Crisis_IN, xregOut= D2008Crisis_OUT, legendPos = LEGENDPOS,
+                        ylim=YLIM, labels=c('time',V_INTEREST_TYPE))
 
+FVECRecursive <- doVECForecastRecursive(inSampleVariales,outOfSampelVariables,K,V_INTEREST_NAME,fromOutOfSample,toOutOfSample, tsName=V_INTEREST_NAME, frequency = FREQ,
+                       dummyIn=cbind(dummy=c(D2008Crisis_IN)),legendPos = LEGENDPOS, ylim=YLIM, labels=c('time',V_INTEREST_TYPE))
 
+FRW <- doRandomWalkForecast(V_INTEREST_IN, V_INTEREST_OUT, 
+                     fromInSample, toInSample, fromOutOfSample, toOutOfSample, tsName = V_INTEREST_NAME, legendPos = LEGENDPOS,
+                     ylim=YLIM, labels=c('time',V_INTEREST_TYPE))
 
+main <- paste('Actual VS Forecasted(',V_INTEREST_NAME,')')
+doNicePlot(cbind(V_INTEREST,fARMARecursive,FVECRecursive,FRW),main=main,labels=c('time',V_INTEREST_TYPE),ylim=YLIM,
+           legendPos = LEGENDPOS, legendCols = c('Actual','Forecast - ARMA Recursive','Forecast - VEC Recursive','Forecast - RW'), verticalLine = fromOutOfSample)
+
+doNicePlot(cbind(V_INTEREST,fARMAStatic,FVECRecursive,FRW),main=main,labels=c('time',V_INTEREST_TYPE),ylim=YLIM,
+           legendPos = LEGENDPOS, legendCols = c('Actual','Forecast - ARMA Static','Forecast - VEC Recursive','Forecast - RW'),verticalLine = fromOutOfSample)
+
+arch.test(autoArimaVInterest)
