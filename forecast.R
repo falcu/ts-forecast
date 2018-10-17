@@ -173,29 +173,8 @@ DFTest <- function( matrix ){
   options(warn=0)
 }
 
-doARMAForecastStatic <- function( armaModel, fullSeries, h, fromInSample, toInSample, fromOutOfSample, toOutOfSample, breakDummy=NULL, frequency=12, tsName='', legendPos=c(0,0),
-                                  labels=c('',''), ylim=c(0,100) ){
-  
-  fcastTS <- forecast(armaModel,xreg=breakDummy)
-  observedTS <- toTs( fullSeries, from=fromInSample, to=toOutOfSample,frequency = frequency)
-  forecastedTS <- toTs( fcastTS$mean[1:h], from=fromOutOfSample, to=toOutOfSample,frequency = frequency)
-  lower95TS <- toTs( fcastTS$lower[,'95%'][1:h], from=fromOutOfSample, to=toOutOfSample,frequency = frequency)
-  upper95TS <- toTs( fcastTS$upper[,'95%'][1:h], from=fromOutOfSample, to=toOutOfSample,frequency = frequency)
-  
-  obsAndForecasted <- cbind(observedTS,forecastedTS)
-  colnames(obsAndForecasted)[1] <- paste( 'Actual', tsName )
-  colnames(obsAndForecasted)[2] <- paste( 'Forecasted', tsName )
-  ic <- cbind(lower95TS,upper95TS)
-  colnames(ic)[1] <- 'Lower 95%'
-  colnames(ic)[2] <- 'Upper 95%'
-  
-  doForecastPlot(obsAndForecasted,ic,legendPos=legendPos,main='ARMA(Static)',labels=labels,ylim=ylim)
-  
-  return(fcastTS)
-}
 
-
-doARMAForecastStatic2 <- function(order,inSampleTS,outOfSampleTS,fromInSample, toInSample, fromOutOfSample, toOutOfSample, frequency=12, tsName='', labels=c('',''), legendPos=c(0,0)
+doARMAForecastStatic <- function(order,inSampleTS,outOfSampleTS,fromInSample, toInSample, fromOutOfSample, toOutOfSample, frequency=12, tsName='', labels=c('',''), legendPos=c(0,0)
                                    ,ylim=c(0,100)){
   forecastedValues <- NULL
   lower95 <- NULL
@@ -229,44 +208,7 @@ doARMAForecastStatic2 <- function(order,inSampleTS,outOfSampleTS,fromInSample, t
 }
 
 
-doARMAForecastRolling <- function(order,inSampleTS,outOfSampleTS,fromInSample, toInSample, fromOutOfSample, toOutOfSample, xregIn=NULL, xregOut=NULL, frequency=12, tsName='', labels=c('',''), legendPos=c(0,0)
-                                  ,ylim=c(0,100)){
-  forecastedValues <- NULL
-  lower95 <- NULL
-  upper95 <- NULL
-  windowSize <- length(inSampleTS)
-  theTS <- c(inSampleTS)
-  for (i in 1:length(outOfSampleTS)){
-    theTS <- c(inSampleTS[i:windowSize],forecastedValues) #Roll 1 step
-    dummyInFunc <- cbind(dummy=c(xregIn))
-    #Unfortunately forecast searches in global env
-    assign("dummyInFunc",dummyInFunc, envir=.GlobalEnv)
-    armaModel <- arima(theTS,order,xreg=dummyInFunc)
-    dummyOutFunc <- cbind(dummy=c(xregOut))
-    assign("dummyOutFunc",dummyOutFunc, envir=.GlobalEnv)
-    fcastTS <- forecast(armaModel, xreg=dummyOutFunc)
-    forecastedValues <- c(forecastedValues,fcastTS$mean[1])
-    lower95 <- c(lower95,fcastTS$lower[,'95%'][1])
-    upper95 <- c(upper95,fcastTS$upper[,'95%'][1])
-  }
-  
-  fullSeries <- c(inSampleTS,outOfSampleTS)
-  observedTS <- toTs( fullSeries, from=fromInSample, to=toOutOfSample,frequency = frequency)
-  forecastedTS <- toTs( forecastedValues, from=fromOutOfSample, to=toOutOfSample,frequency = frequency)
-  lower95TS <- toTs( lower95, from=fromOutOfSample, to=toOutOfSample,frequency = frequency)
-  upper95TS <- toTs( upper95, from=fromOutOfSample, to=toOutOfSample,frequency = frequency)
-  
-  obsAndForecasted <- cbind(observedTS,forecastedTS)
-  colnames(obsAndForecasted)[1] <- paste( 'Actual', tsName )
-  colnames(obsAndForecasted)[2] <- paste( 'Forecasted', tsName )
-  ic <- cbind(lower95TS,upper95TS)
-  colnames(ic)[1] <- 'Lower 95%'
-  colnames(ic)[2] <- 'Upper 95%'
-  
-  doForecastPlot(obsAndForecasted,ic,labels=labels,ylim=ylim,legendPos=legendPos,main='ARMA(Rolling)')
-}
-
-doARMAForecastRolling2 <- function(order,inSampleTS,outOfSampleTS,fromInSample, toInSample, fromOutOfSample, toOutOfSample, xregIn=NULL, xregOut=NULL, frequency=12, tsName='', labels=c('',''), legendPos=c(0,0)
+doARMAForecastRecursive <- function(order,inSampleTS,outOfSampleTS,fromInSample, toInSample, fromOutOfSample, toOutOfSample, xregIn=NULL, xregOut=NULL, frequency=12, tsName='', labels=c('',''), legendPos=c(0,0)
                                   ,ylim=c(0,100)){
   forecastedValues <- NULL
   lower95 <- NULL
@@ -302,29 +244,7 @@ doARMAForecastRolling2 <- function(order,inSampleTS,outOfSampleTS,fromInSample, 
   colnames(ic)[1] <- 'Lower 95%'
   colnames(ic)[2] <- 'Upper 95%'
   
-  doForecastPlot(obsAndForecasted,ic,labels=labels,ylim=ylim,legendPos=legendPos,main='ARMA(Rolling)')
-}
-
-doVECForecastStatic<- function(varModel, observedTS, vName, h, fromOutOfSample, toOutOfSample, tsName=NULL, frequency=12, dummy=NULL, legendPos=c(0,0),
-                               labels=c('',''), ylim=c(0,100)){
-  if(missing(tsName)){
-    tsName <- vName
-  }
-  VECForecast <- predict(varModel,n.ahead=h, dumvar=dummy)
-  fcstIndex <- paste(vName,'.fcst', sep='')
-  lowerIndex<- paste(vName,'.lower', sep='')
-  upperIndex<- paste(vName,'.upper', sep='')
-  forecastedTS <- toTs( data.frame(VECForecast$fcst)[,fcstIndex], from=fromOutOfSample, to=toOutOfSample,frequency = frequency)
-  lower95 <- toTs(  data.frame(VECForecast$fcst)[,lowerIndex], from=fromOutOfSample, to=toOutOfSample,frequency = frequency)
-  upper95 <- toTs(  data.frame(VECForecast$fcst)[,upperIndex], from=fromOutOfSample, to=toOutOfSample,frequency = frequency)
-  obsAndForecasted <- cbind(observedTS,forecastedTS)
-  colnames(obsAndForecasted)[1] <- paste( 'Actual', tsName )
-  colnames(obsAndForecasted)[2] <- paste( 'Forecasted', tsName )
-  ic <- cbind(lower95,upper95)
-  colnames(ic)[1] <- 'Lower 95%'
-  colnames(ic)[2] <- 'Upper 95%'
-  
-  doForecastPlot(obsAndForecasted,ic,labels=labels,ylim=ylim,legendPos=legendPos, main='VEC(Static)')
+  doForecastPlot(obsAndForecasted,ic,labels=labels,ylim=ylim,legendPos=legendPos,main='ARMA(Recursive)')
 }
 
 doVECForecastRecursive<- function(inSampleTS,outOfSampleTS, K, vName, fromOutOfSample, toOutOfSample, tsName=NULL, frequency=12, dummyIn=NULL,legendPos=c(0,0),
@@ -363,7 +283,6 @@ doVECForecastRecursive<- function(inSampleTS,outOfSampleTS, K, vName, fromOutOfS
   lower95TS <- toTs( lower95 , from=fromOutOfSample, to=toOutOfSample,frequency = frequency)
   upper95TS <- toTs( upper95 , from=fromOutOfSample, to=toOutOfSample,frequency = frequency)
   obsAndForecasted <- cbind(observedTS,forecastedTS)
-  print(obsAndForecasted)
   colnames(obsAndForecasted)[1] <- paste( 'Actual', tsName )
   colnames(obsAndForecasted)[2] <- paste( 'Forecasted', tsName )
   ic <- cbind(lower95TS,upper95TS)
@@ -372,19 +291,22 @@ doVECForecastRecursive<- function(inSampleTS,outOfSampleTS, K, vName, fromOutOfS
   doForecastPlot(obsAndForecasted,ic,labels=labels,ylim=ylim,legendPos=legendPos, main='VEC(Recursive)')
 }
 
-doVECForecastRolling<- function(varModel, observedTS, vName, nroll, fromOutOfSample, toOutOfSample, tsName=NULL, frequency=12, dummy=NULL, legendPos=c(0,0),
-                               labels=c('',''), ylim=c(0,100))
-  {
-    if(missing(tsName)){
-      tsName <- vName
-    }
-    VECForecast <- predict_rolling(varModel,n.ahead=1, nroll=nroll, dumvar=dummy)
-    forecastedTS <- toTs( VECForecast$pred[vName], from=fromOutOfSample, to=toOutOfSample,frequency = frequency)
-    obsAndForecasted <- cbind(observedTS,forecastedTS)
-    colnames(obsAndForecasted)[1] <- paste( 'Actual', tsName )
-    colnames(obsAndForecasted)[2] <- paste( 'Forecasted', tsName )
-
-    doForecastPlot(obsAndForecasted,NULL,labels=labels,ylim=ylim,legendPos=legendPos, main='VEC(Rolling)')
+doRandomWalkForecast<- function(inSampleTS,outOfSampleTS,fromInSample, toInSample, fromOutOfSample, toOutOfSample, xregIn=NULL, xregOut=NULL, frequency=12, tsName='', labels=c('',''), legendPos=c(0,0)
+                                  ,ylim=c(0,100)){
+  
+  inWindow <- length(inSampleTS)
+  outWindow <- length(outOfSampleTS)
+  forecastedValues <- c(inSampleTS[inWindow])
+  for (i in 1:(outWindow-1)){
+    forecastedValues <- c(forecastedValues,outOfSampleTS[i])
+  }
+  
+  observedTS <- toTs( c(inSampleTS,outOfSampleTS) , from=fromInSample, to=toOutOfSample,frequency = frequency)
+  forecastedTS <- toTs( forecastedValues , from=fromOutOfSample, to=toOutOfSample,frequency = frequency)
+  obsAndForecasted <- cbind(observedTS,forecastedTS)
+  colnames(obsAndForecasted)[1] <- paste( 'Actual', tsName )
+  colnames(obsAndForecasted)[2] <- paste( 'Forecasted', tsName )
+  doForecastPlot(obsAndForecasted,labels=labels,ylim=ylim,legendPos=legendPos, main='Random Walk')
 }
 
 doForecastPlot <- function(obsAndForecasted, ic=NULL, labels, ylim=c(0,100), legendPos=c(0,0), main=''){
@@ -463,23 +385,7 @@ Box.test(autoArimaFED$residuals)
 test <- forecast(FED_OUT, model=autoArimaFED, xreg=D2008Crisis_OUT)
 fitted(test)
 
-#Forecast TODO To be moved
-doARMAForecastStatic(autoArimaFED, FED, outOfSamplePeriods, 
-               fromInSample, toInSample, fromOutOfSample, toOutOfSample, breakDummy = data.frame(D2008Crisis_OUT), tsName = 'FED', legendPos = c(2010,7), ylim=c(0,7), labels=c('time','IR'))
-
-doARMAForecastStatic2(c(1,1,2),FED_IN, FED_OUT, 
-                      fromInSample, toInSample, fromOutOfSample, toOutOfSample, tsName = 'FED', legendPos = c(2007,7),
-                      ylim=c(0,7), labels=c('time','IR'))
-
-doARMAForecastRolling(c(1,1,2),FED_IN, FED_OUT, 
-                      fromInSample, toInSample, fromOutOfSample, toOutOfSample, tsName = 'FED', xregIn  = D2008Crisis_IN, xregOut= D2008Crisis_OUT, legendPos = c(2007,7),
-                      ylim=c(0,7), labels=c('time','IR'))
-
-
-doARMAForecastRolling2(c(1,1,2),FED_IN, FED_OUT, 
-                      fromInSample, toInSample, fromOutOfSample, toOutOfSample, tsName = 'FED', xregIn  = D2008Crisis_IN, xregOut= D2008Crisis_OUT, legendPos = c(2007,7),
-                      ylim=c(0,7), labels=c('time','IR'))
-
+ARMA_ORDER <- c(1,1,2)
 
 #Co-integracion
 summary(ca.jo(Y, type="trace", ecdet="trend", K=2, dumvar=cbind(dummy=c(D2008Crisis))))
@@ -551,34 +457,33 @@ summary(ecmModelFED)
 bgtest(ecmModelFED,1)
 
 #VECM
-inSampleVariales <- data.frame(cbind(FED=FED_IN,UNEMPLOY=UNEMPLOY_IN,CPI=CPI_IN,GSPC=GSPC_IN,GS2=GS2_IN,GS10=GS10_IN))
-outOfSampelVariables <- data.frame(cbind(FED=FED_OUT,UNEMPLOY=UNEMPLOY_OUT,CPI=CPI_OUT,GSPC=GSPC_OUT,GS2=GS2_OUT,GS10=GS10_OUT))
 vec_ur <- ca.jo(inSampleVariales, K=4, ecdet = "trend", dumvar=cbind(dummy=c(D2008Crisis_IN)))
 var_ur <- vec2var(vec_ur)
 summary(var_ur)
 serial.test(var_ur)
 
+inSampleVariales <- data.frame(cbind(FED=FED_IN,UNEMPLOY=UNEMPLOY_IN,CPI=CPI_IN,GSPC=GSPC_IN,GS2=GS2_IN,GS10=GS10_IN))
+outOfSampelVariables <- data.frame(cbind(FED=FED_OUT,UNEMPLOY=UNEMPLOY_OUT,CPI=CPI_OUT,GSPC=GSPC_OUT,GS2=GS2_OUT,GS10=GS10_OUT))
+
+
+#FORECAST
+
+doARMAForecastStatic(ARMA_ORDER,FED_IN, FED_OUT, 
+                     fromInSample, toInSample, fromOutOfSample, toOutOfSample, tsName = 'FED', legendPos = c(2007,7),
+                     ylim=c(0,7), labels=c('time','IR'))
+
+
+doARMAForecastRecursive(ARMA_ORDER,FED_IN, FED_OUT, 
+                        fromInSample, toInSample, fromOutOfSample, toOutOfSample, tsName = 'FED', xregIn  = D2008Crisis_IN, xregOut= D2008Crisis_OUT, legendPos = c(2007,7),
+                        ylim=c(0,7), labels=c('time','IR'))
+
 doVECForecastRecursive(inSampleVariales,outOfSampelVariables,4,'FED',fromOutOfSample,toOutOfSample, tsName='FED', frequency = FREQ,
-                    dummyIn=cbind(dummy=c(D2008Crisis_IN)),legendPos = c(2007,7), ylim=c(0,7), labels=c('time','IR'))
+                       dummyIn=cbind(dummy=c(D2008Crisis_IN)),legendPos = c(2007,7), ylim=c(0,7), labels=c('time','IR'))
 
-doVECForecastStatic(var_ur,FED,'FED_IN',outOfSamplePeriods,fromOutOfSample,toOutOfSample, tsName='FED', frequency = FREQ,
-                    dummy=cbind(dummy=c(D2008Crisis_OUT)),legendPos = c(2007,7), ylim=c(0,7), labels=c('time','IR'))
+doRandomWalkForecast(FED_IN, FED_OUT, 
+                     fromInSample, toInSample, fromOutOfSample, toOutOfSample, tsName = 'FED', legendPos = c(2007,7),
+                     ylim=c(0,7), labels=c('time','IR'))
 
-VEC <- VECM(vecVariables,lag=4,r=1,estim=c("ML"),LRinclude=c("trend"),dumvar=cbind(dummy=c(D2008Crisis_IN)))
-
-lineVar <- lineVar(vecVariables,lag=4,r=1,model='VECM', estim='ML')
-
-doVECForecastRolling(lineVar,FED,'FED_IN',outOfSamplePeriods,fromOutOfSample,toOutOfSample, tsName='FED', frequency = FREQ,
-                    dummy=cbind(dummy=c(D2008Crisis_OUT)),legendPos = c(2007,7), ylim=c(0,7), labels=c('time','IR'))
-
-VECForecast <- predict_rolling(lineVar,n.ahead=1, nroll=outOfSamplePeriods, dumvar=D2008Crisis_OUT)
-
-#VECM OTRO
-
-cointest<-ca.jo(vecVariables, type="trace", ecdet="trend", K=2, dumvar=cbind(dummy=c(d2008Crisis)))
-vecm<-cajorls(cointest)
-predict(vecm)
-forecast(vecm)
 
 #FIN modelo MCE FED
 
